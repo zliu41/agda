@@ -16,6 +16,7 @@ data Exp =
   Local LocalId |
   Global GlobalId |
   Undefined |
+  Null |
   String String |
   Char Char |
   Integer Integer |

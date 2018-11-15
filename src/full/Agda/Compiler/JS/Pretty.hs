@@ -70,6 +70,7 @@ instance Pretty Exp where
   pretty n i (Local x)              = pretty n i x
   pretty n i (Global m)             = pretty n i m
   pretty n i (Undefined)            = "undefined"
+  pretty n i (Null)                 = "null"
   pretty n i (String s)             = "\"" ++ unescapes s ++ "\""
   pretty n i (Char c)               = "\"" ++ unescape c ++ "\""
   pretty n i (Integer x)            = "agdaRTS.primIntegerFromString(\"" ++ show x ++ "\")"
