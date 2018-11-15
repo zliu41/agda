@@ -61,7 +61,7 @@ import Agda.Compiler.Treeless.GuardsToPrims
 import Agda.Compiler.Backend (Backend(..), Backend'(..), Recompile(..))
 
 import Agda.Compiler.JS.Syntax
-  ( Exp(Self,Local,Global,Undefined,String,Char,Integer,Double,Lambda,Object,Apply,Lookup,If,BinOp,PlainJS),
+  ( Exp(Self,Local,Global,Undefined,Null,String,Char,Integer,Double,Lambda,Object,Apply,Lookup,If,BinOp,PlainJS),
     LocalId(LocalId), GlobalId(GlobalId), MemberId(MemberId), Export(Export), Module(Module),
     modName, expName, uses )
 import Agda.Compiler.JS.Substitution
@@ -407,7 +407,7 @@ compileTerm' kit t = go t
       T.TError T.TUnreachable -> return Undefined
       T.TCoerce t -> go t
 
-    unit = return $ Integer 0
+    unit = return Null
 
 compilePrim :: T.TPrim -> Exp
 compilePrim p =
