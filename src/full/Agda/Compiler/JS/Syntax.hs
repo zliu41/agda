@@ -23,8 +23,10 @@ data Exp =
   Double Double |
   Lambda Nat Exp |
   Object (Map MemberId Exp) |
+  Array [Exp] |
   Apply Exp [Exp] |
   Lookup Exp MemberId |
+  LookupIndex Exp MemberIndex |
   If Exp Exp Exp |
   BinOp Exp String Exp |
   PreOp String Exp |
@@ -43,6 +45,9 @@ newtype GlobalId = GlobalId [String]
   deriving (Eq, Ord, Show)
 
 newtype MemberId = MemberId String
+  deriving (Eq, Ord, Show)
+
+newtype MemberIndex = MemberIndex Int
   deriving (Eq, Ord, Show)
 
 -- The top-level compilation unit is a module, which names
@@ -70,11 +75,13 @@ instance Uses a => Uses (Map k a) where
 
 instance Uses Exp where
   uses (Object o)     = Map.foldr (union . uses) empty o
+  uses (Array es)     = foldr (union . uses) empty es
   uses (Apply e es)   = foldr (union . uses) (uses e) es
   uses (Lookup e l)   = uses' e [l] where
       uses' Self         ls = singleton ls
       uses' (Lookup e l) ls = uses' e (l : ls)
       uses' e            ls = uses e
+  uses (LookupIndex e l) = uses e
   uses (If e f g)     = uses e `union` uses f `union` uses g
   uses (BinOp e op f) = uses e `union` uses f
   uses (PreOp op e)   = uses e
@@ -98,8 +105,10 @@ instance Globals Exp where
   globals (Global i) = singleton i
   globals (Lambda n e) = globals e
   globals (Object o) = globals o
+  globals (Array es) = globals es
   globals (Apply e es) = globals e `union` globals es
   globals (Lookup e l) = globals e
+  globals (LookupIndex e l) = globals e
   globals (If e f g) = globals e `union` globals f `union` globals g
   globals (BinOp e op f) = globals e `union` globals f
   globals (PreOp op e) = globals e
