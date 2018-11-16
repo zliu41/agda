@@ -67,6 +67,9 @@ instance Pretty GlobalId where
 instance Pretty MemberId where
   pretty n i (MemberId s) = "\"" ++ unescapes s ++ "\""
 
+instance Pretty MemberIndex where
+  pretty _ _ (MemberIndex i) = show i
+
 -- Pretty print expressions
 
 instance Pretty Exp where
@@ -85,8 +88,12 @@ instance Pretty Exp where
   pretty n i (Object o) | null o    = "{}"
   pretty n i (Object o) | otherwise =
     "{" ++ br (i+1) ++ intercalate ("," ++ br (i+1)) (pretties n i o) ++ br i ++ "}"
+  pretty n i (Array [])             = "[]"
+  pretty n i (Array es)             =
+    "[" ++ br (i+1) ++ intercalate ("," ++ br (i+1)) (pretties n i es) ++ br i ++ "]"
   pretty n i (Apply f es)           = pretty n i f ++ "(" ++ intercalate ", " (pretties n i es) ++ ")"
   pretty n i (Lookup e l)           = pretty n i e ++ "[" ++ pretty n i l ++ "]"
+  pretty n i (LookupIndex e l)      = pretty n i e ++ "[" ++ pretty n i l ++ "]"
   pretty n i (If e f g)             =
     "(" ++ pretty n i e ++ "? " ++ pretty n i f ++ ": " ++ pretty n i g ++ ")"
   pretty n i (PreOp op e)           = "(" ++ op ++ " " ++ pretty n i e ++ ")"
