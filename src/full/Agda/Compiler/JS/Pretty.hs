@@ -1,11 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Agda.Compiler.JS.Pretty where
 
-import Prelude hiding ( null )
 import Data.List ( intercalate )
 import Data.String ( IsString (fromString) )
 import Data.Set ( Set, toList, singleton, insert, member )
-import Data.Map ( Map, toAscList, empty, null )
+import Data.Map ( Map, toAscList )
 import Text.Regex.TDFA (makeRegex, matchTest, Regex)
 
 import Agda.Syntax.Common ( Nat )
@@ -17,25 +16,49 @@ import Agda.Compiler.JS.Syntax hiding (exports)
 
 --- The indentation combinators of the pretty library does not fit C-like languages
 --- like ECMAScript.
---- Here we implement a basic pretty printer with a better `indent`.
---- An alternative solution would be to depend on a pretty-printing library with
---- a similar `indent` operation.
+--- A simple pretty printer is implemented with a better `indent` and punctuation compaction.
 
 data Doc
     = Doc String
     | Indent Int Doc
+    | Group Doc
     | Beside Doc Doc
     | Above Doc Doc
+    | Enclose Doc Doc Doc
     | Empty
 
 render :: Doc -> String
-render = go 0
+render = intercalate "\n" . map (uncurry mkIndent) . go 0
   where
-    go i Empty = ""
-    go i (Doc s) = s
-    go i (Beside d d') = go i d ++ go i d'
-    go i (Above d d') = go i d ++ "\n" ++ replicate i ' ' ++ go i d'
+    joinBy f [x] (y: ys) = f x y ++ ys
+    joinBy f (x:xs) ys = x: joinBy f xs ys
+    joinBy f xs ys = xs ++ ys
+
+    mkIndent n "" = ""
+    mkIndent n s = replicate n ' ' ++ s
+
+    overlay (i, s) (j, s') | all punctuation (s ++ s') && n > 0 = [(i, s ++ mkIndent n s')]
+      where n = j - (i + length s)
+    overlay (j, s') (i, s) | all punctuation (s ++ s') && n > 0 = [(i, s' ++ mkIndent n s)]
+      where n = j - (i + length s)
+    overlay a b = [a, b]
+
+    punctuation = (`elem` ("(){}[];:, " :: String))
+
+    go i Empty = []
+    go i (Doc s) = [(i, s)]
+    go i (Beside d d') = joinBy (\(i, s) (_, s') -> [(i, s ++ s')]) (go i d) (go i d')
+    go i (Above d d') = joinBy overlay (go i d) (go i d')
     go i (Indent j d) = go (i+j) d
+    go i (Enclose open close d) = go i $ Group $ Above open $ Above d close
+    go i (Group d)
+        | size ss < 40 = compact ss
+        | otherwise    = ss
+      where
+        ss = go i d
+        size = sum . map (length . snd)
+        compact [] = []
+        compact ((i, x): xs) = [(i, x ++ concatMap snd xs)]
 
 instance IsString Doc where
     fromString = Doc
@@ -58,29 +81,47 @@ d $+$ d' = Above d d'
 text :: String -> Doc
 text = Doc
 
-indent :: Doc -> Doc
-indent = Indent 2
+group :: Doc -> Doc
+group = Group
 
-punctuate :: Doc -> [Doc] -> [Doc]
-punctuate _ []     = []
-punctuate p (x:xs) = go x xs
-                   where go y []     = [y]
-                         go y (z:zs) = (y <> p) : go z zs
+indentBy :: Int -> Doc -> Doc
+indentBy i Empty = Empty
+indentBy i (Indent j d) = Indent (i+j) d
+indentBy i d = Indent i d
+
+enclose :: Doc -> Doc -> Doc -> Doc
+enclose open close (Enclose o c d) = Enclose (open <> o) (c <> close) d
+enclose open close (Indent _ (Enclose o c d)) = Enclose (open <> o) (c <> close) d
+enclose open close d = Enclose open close d
+
+----------------------------------------------------------------------------------------------
+
+indent :: Doc -> Doc
+indent = indentBy 2
 
 hcat :: [Doc] -> Doc
 hcat = foldr (<>) mempty
 
-hsep :: [Doc] -> Doc
-hsep = hcat . punctuate " "
-
 vcat :: [Doc] -> Doc
 vcat = foldr ($+$) mempty
 
+punctuate :: Doc -> [Doc] -> Doc
+punctuate _ []     = mempty
+punctuate p (x:xs) = indent $ vcat $ go x xs
+                   where go y []     = [y]
+                         go y (z:zs) = (y <> p) : go z zs
+
+parens, brackets, braces :: Doc -> Doc
+parens   = enclose "(" ")"
+brackets = enclose "[" "]"
+braces   = enclose "{" "}"
+
 -- | Apply 'parens' to 'Doc' if boolean is true.
 mparens :: Bool -> Doc -> Doc
-mparens True  d = "(" <> d <> ")"
+mparens True  d = parens d
 mparens False d = d
 
+----------------------------------------------------------------------------------------------
 
 unescape :: Char -> String
 unescape '"'      = "\\\""
@@ -133,41 +174,34 @@ instance Pretty MemberIndex where
 -- Pretty print expressions
 
 instance Pretty Exp where
-  pretty n (Self)                 = "exports"
-  pretty n (Local x)              = pretty n x
-  pretty n (Global m)             = pretty n m
-  pretty n (Undefined)            = "undefined"
-  pretty n (Null)                 = "null"
-  pretty n (String s)             = "\"" <> unescapes s <> "\""
-  pretty n (Char c)               = "\"" <> unescapes [c] <> "\""
-  pretty n (Integer x)            = "agdaRTS.primIntegerFromString(\"" <> text (show x) <> "\")"
-  pretty n (Double x)             = text $ show x
-  pretty n (Lambda x e)           =
-    mparens (x /= 1) (hsep $ punctuate "," (pretties (n+x) (map LocalId [x-1, x-2 .. 0]))) <>
+  pretty n (Self)            = "exports"
+  pretty n (Local x)         = pretty n x
+  pretty n (Global m)        = pretty n m
+  pretty n (Undefined)       = "undefined"
+  pretty n (Null)            = "null"
+  pretty n (String s)        = "\"" <> unescapes s <> "\""
+  pretty n (Char c)          = "\"" <> unescapes [c] <> "\""
+  pretty n (Integer x)       = "agdaRTS.primIntegerFromString(\"" <> text (show x) <> "\")"
+  pretty n (Double x)        = text $ show x
+  pretty n (Lambda x e)      =
+    mparens (x /= 1) (punctuate "," (pretties (n+x) (map LocalId [x-1, x-2 .. 0]))) <>
     " => " <> block (n+x) e
-  pretty n (Object o) | null o    = "{}"
-  pretty n (Object o) | otherwise =
-    indent ("{" $+$ (vcat $ punctuate "," (pretties n o))) $+$ "}"
-  pretty n (Array [])             = "[]"
-  pretty n (Array es)             =
-    indent ("[" $+$ (vcat $ punctuate "," (pretties n es))) $+$ "]"
-  pretty n (Apply f es)           = pretty n f <> "(" <> hsep (punctuate "," (pretties n es)) <> ")"
-  pretty n (Lookup e l)           = pretty n e <> "[" <> pretty n l <> "]"
-  pretty n (LookupIndex e l)      = pretty n e <> "[" <> pretty n l <> "]"
-  pretty n (If e f g)             =
-    "(" <> pretty n e <> "? " <> pretty n f <> ": " <> pretty n g <> ")"
-  pretty n (PreOp op e)           = "(" <> text op <> " " <> pretty n e <> ")"
-  pretty n (BinOp e op f)         = "(" <> pretty n e <> " " <> text op <> " " <> pretty n f <> ")"
-  pretty n (Const c)              = text c
-  pretty n (PlainJS js)           = "(" <> text js <> ")"
+  pretty n (Object o)        = braces $ punctuate "," $ pretties n o
+  pretty n (Array es)        = brackets $ punctuate "," $ pretties n es
+  pretty n (Apply f es)      = pretty n f <> parens (punctuate "," $ pretties n es)
+  pretty n (Lookup e l)      = pretty n e <> brackets (pretty n l)
+  pretty n (LookupIndex e l) = pretty n e <> brackets (pretty n l)
+  pretty n (If e f g)        = parens $ pretty n e <> "? " <> pretty n f <> ": " <> pretty n g
+  pretty n (PreOp op e)      = parens $ text op <> " " <> pretty n e
+  pretty n (BinOp e op f)    = parens $ pretty n e <> " " <> text op <> " " <> pretty n f
+  pretty n (Const c)         = text c
+  pretty n (PlainJS js)      = parens $ text js
 
 block :: Nat -> Exp -> Doc
-block n e
-  | doNest e  = indent ("(" $+$ pretty n e) $+$ ")"
-  | otherwise = pretty n e
+block n e = mparens (doNest e) $ pretty n e
   where
-    doNest Lambda{} = False
-    doNest _ = True
+    doNest Object{} = True
+    doNest _ = False
 
 modname :: GlobalId -> Doc
 modname (GlobalId ms) = text $ "\"" ++ intercalate "." ms ++ "\""
@@ -176,10 +210,10 @@ modname (GlobalId ms) = text $ "\"" ++ intercalate "." ms ++ "\""
 exports :: Nat -> Set [MemberId] -> [Export] -> Doc
 exports n lss [] = ""
 exports n lss (Export ls e : es) | member (init ls) lss =
-  "exports[" <> hcat (punctuate "][" (pretties n ls)) <> "] = " <> indent (pretty n e) <> ";" $+$
+  "exports" <> hcat (map brackets (pretties n ls)) <> " = " <> indent (pretty n e) <> ";" $+$
   exports n (insert ls lss) es
 exports n lss (Export ls e : es) | otherwise =
-  exports n lss (Export (init ls) (Object empty) : Export ls e : es)
+  exports n lss (Export (init ls) (Object mempty) : Export ls e : es)
 
 instance Pretty Module where
   pretty n (Module m es ex) =
