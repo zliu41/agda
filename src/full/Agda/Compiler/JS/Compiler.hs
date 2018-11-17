@@ -509,7 +509,7 @@ litqname q =
 writeModule :: Module -> TCM ()
 writeModule m = do
   out <- outFile (modName m)
-  liftIO (writeFile out (JSPretty.pretty 0 0 m))
+  liftIO (writeFile out (JSPretty.prettyShow m))
 
 outFile :: GlobalId -> TCM FilePath
 outFile m = do
