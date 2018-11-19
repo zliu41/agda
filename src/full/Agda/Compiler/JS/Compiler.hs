@@ -335,11 +335,10 @@ definition' kit q d t ls = do
       case theDef d of
         Record { recFields = flds } ->
           ret (curriedLambda np (Object (fromList
-            ( (last ls , Lambda 1
+            [ (last ls , Lambda 1
                  (Apply (Lookup (Local (LocalId 0)) (last ls))
                    [ Local (LocalId (np - i)) | i <- [0 .. np-1] ]))
-            : (zip [ jsMember (qnameName (unArg fld)) | fld <- flds ]
-                 [ Local (LocalId (np - i)) | i <- [1 .. np] ])))))
+            ])))
         _ ->
           ret (curriedLambda (np + 1)
             (Apply (Lookup (Local (LocalId 0)) (last ls))
