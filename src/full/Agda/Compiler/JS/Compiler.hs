@@ -101,18 +101,24 @@ jsBackend' = Backend'
 --- Options ---
 
 data JSOptions = JSOptions
-  { optJSCompile :: Bool }
+  { optJSCompile :: Bool
+  , optJSOptimize :: Bool
+  }
 
 defaultJSOptions :: JSOptions
 defaultJSOptions = JSOptions
-  { optJSCompile = False }
+  { optJSCompile = False
+  , optJSOptimize = False
+  }
 
 jsCommandLineFlags :: [OptDescr (Flag JSOptions)]
 jsCommandLineFlags =
     [ Option [] ["js"] (NoArg enable) "compile program using the JS backend"
+    , Option [] ["js-optimize"] (NoArg enableOpt) "turn on optimizations during JS code generation"
     ]
   where
     enable o = pure o{ optJSCompile = True }
+    enableOpt o = pure o{ optJSOptimize = True }
 
 --- Top-level compilation ---
 
@@ -153,7 +159,7 @@ jsPostModule _ _ isMain _ defs = do
       NotMain -> Nothing
 
 jsCompileDef :: JSOptions -> JSModuleEnv -> Definition -> TCM (Maybe Export)
-jsCompileDef _ kit def = definition kit (defName def, def)
+jsCompileDef opts kit def = definition (opts, kit) (defName def, def)
 
 --------------------------------------------------
 -- Naming
@@ -251,6 +257,7 @@ insertAfter us e (f:fs) | otherwise = f : insertAfter (delete (expName f) us) e 
 -- Main compiling clauses
 --------------------------------------------------
 
+{- dead code
 curModule :: IsMain -> TCM Module
 curModule isMain = do
   kit <- coinductionKit
@@ -262,8 +269,10 @@ curModule isMain = do
     main = case isMain of
       IsMain -> Just $ Apply (Lookup Self $ MemberId "main") [Lambda 1 emp]
       NotMain -> Nothing
+-}
+type EnvWithOpts = (JSOptions, JSModuleEnv)
 
-definition :: Maybe CoinductionKit -> (QName,Definition) -> TCM (Maybe Export)
+definition :: EnvWithOpts -> (QName,Definition) -> TCM (Maybe Export)
 definition kit (q,d) = do
   reportSDoc "compile.js" 10 $ "compiling def:" <+> prettyTCM q
   (_,ls) <- global q
@@ -289,14 +298,14 @@ defJSDef def =
   where
     dropEquals = dropWhile $ \ c -> isSpace c || c == '='
 
-definition' :: Maybe CoinductionKit -> QName -> Definition -> Type -> [MemberId] -> TCM (Maybe Export)
+definition' :: EnvWithOpts -> QName -> Definition -> Type -> [MemberId] -> TCM (Maybe Export)
 definition' kit q d t ls = do
   checkCompilerPragmas q
   case theDef d of
     -- coinduction
-    Constructor{} | Just q == (nameOfSharp <$> kit) -> do
+    Constructor{} | Just q == (nameOfSharp <$> snd kit) -> do
       return Nothing
-    Function{} | Just q == (nameOfFlat <$> kit) -> do
+    Function{} | Just q == (nameOfFlat <$> snd kit) -> do
       ret $ Lambda 1 $ Apply (Lookup (local 0) flatName) []
 
     Axiom | Just e <- defJSDef d -> plainJS e
@@ -313,7 +322,7 @@ definition' kit q d t ls = do
           eliminateLiteralPatterns
           (convertGuards treeless)
         reportSDoc "compile.js" 30 $ " compiled treeless fun:" <+> pretty funBody
-        funBody' <- compileTerm funBody
+        funBody' <- compileTerm kit funBody
         reportSDoc "compile.js" 30 $ " compiled JS fun:" <+> (text . show) funBody'
         return $ Just $ Export ls funBody'
 
@@ -330,11 +339,14 @@ definition' kit q d t ls = do
       np <- return (arity t - nc)
       d <- getConstInfo p
       case theDef d of
-        Record {} ->
-          ret (curriedLambda np (Lambda 1
+        Record { recFields = flds } ->
+          ret (curriedLambda np (wrapRecord $ Lambda 1
                  (Apply (Local (LocalId 0))
                    [ Local (LocalId (np - i)) | i <- [0 .. np-1] ])
             ))
+          where
+            wrapRecord e | optJSOptimize (fst kit) = e
+                         | otherwise = Object $ fromList [ (last ls, e) ]
         _ ->
           ret (curriedLambda (np + 1)
             (Apply (Lookup (Local (LocalId 0)) (last ls))
@@ -345,13 +357,8 @@ definition' kit q d t ls = do
     ret = return . Just . Export ls
     plainJS = return . Just . Export ls . PlainJS
 
-compileTerm :: T.TTerm -> TCM Exp
-compileTerm t = do
-  kit <- coinductionKit
-  compileTerm' kit t
-
-compileTerm' :: Maybe CoinductionKit -> T.TTerm -> TCM Exp
-compileTerm' kit t = go t
+compileTerm :: EnvWithOpts -> T.TTerm -> TCM Exp
+compileTerm kit t = go t
   where
     go :: T.TTerm -> TCM Exp
     go t = case t of
@@ -363,7 +370,7 @@ compileTerm' kit t = go t
           Datatype {} -> return (String "*")
           Record {} -> return (String "*")
           _ -> qname q
-      T.TApp (T.TCon q) [x] | Just q == (nameOfSharp <$> kit) -> do
+      T.TApp (T.TCon q) [x] | Just q == (nameOfSharp <$> snd kit) -> do
         x <- go x
         let evalThunk = unlines
               [ "function() {"
@@ -387,13 +394,16 @@ compileTerm' kit t = go t
         qname q
       T.TCase sc ct def alts | T.CTData dt <- T.caseType ct -> do
         dt <- getConstInfo dt
-        alts' <- traverse compileAlt alts
+        alts' <- traverse (compileAlt kit) alts
         let obj = Object $ Map.fromList alts'
         case (theDef dt, defJSDef dt) of
           (_, Just e) -> do
             return $ apply (PlainJS e) [Local (LocalId sc), obj]
+          (Record{}, _) | optJSOptimize (fst kit) -> do
+            return $ apply (Local $ LocalId sc) [snd $ headWithDefault __IMPOSSIBLE__ alts']
           (Record{}, _) -> do
-            return $ apply (Local $ LocalId sc) [snd (headWithDefault __IMPOSSIBLE__ alts')]
+            memId <- visitorName $ recCon $ theDef dt
+            return $ apply (Lookup (Local $ LocalId sc) memId) [obj]
           (Datatype{}, _) -> do
             return $ curriedApply (Local (LocalId sc)) [obj]
           _ -> __IMPOSSIBLE__
@@ -439,11 +449,11 @@ compilePrim p =
         primEq   = curriedLambda 2 $ BinOp (local 1) "===" (local 0)
 
 
-compileAlt :: T.TAlt -> TCM (MemberId, Exp)
-compileAlt a = case a of
+compileAlt :: EnvWithOpts -> T.TAlt -> TCM (MemberId, Exp)
+compileAlt kit a = case a of
   T.TACon con ar body -> do
     memId <- visitorName con
-    body <- Lambda ar <$> compileTerm body
+    body <- Lambda ar <$> compileTerm kit body
     return (memId, body)
   _ -> __IMPOSSIBLE__
 
