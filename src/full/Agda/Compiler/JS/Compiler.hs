@@ -42,6 +42,7 @@ import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Pretty
 import Agda.Utils.FileName ( filePath )
 import Agda.Utils.Function ( iterate' )
+import Agda.Utils.List ( headWithDefault )
 import Agda.Utils.Maybe
 import Agda.Utils.Monad ( (<$>), (<*>), ifM )
 import Agda.Utils.Pretty (prettyShow)
@@ -333,12 +334,11 @@ definition' kit q d t ls = do
       np <- return (arity t - nc)
       d <- getConstInfo p
       case theDef d of
-        Record { recFields = flds } ->
-          ret (curriedLambda np (Object (fromList
-            [ (last ls , Lambda 1
-                 (Apply (Lookup (Local (LocalId 0)) (last ls))
-                   [ Local (LocalId (np - i)) | i <- [0 .. np-1] ]))
-            ])))
+        Record {} ->
+          ret (curriedLambda np (Lambda 1
+                 (Apply (Local (LocalId 0))
+                   [ Local (LocalId (np - i)) | i <- [0 .. np-1] ])
+            ))
         _ ->
           ret (curriedLambda (np + 1)
             (Apply (Lookup (Local (LocalId 0)) (last ls))
@@ -397,8 +397,7 @@ compileTerm' kit t = go t
           (_, Just e) -> do
             return $ apply (PlainJS e) [Local (LocalId sc), obj]
           (Record{}, _) -> do
-            memId <- visitorName $ recCon $ theDef dt
-            return $ apply (Lookup (Local $ LocalId sc) memId) [obj]
+            return $ apply (Local $ LocalId sc) [snd (headWithDefault __IMPOSSIBLE__ alts')]
           (Datatype{}, _) -> do
             return $ curriedApply (Local (LocalId sc)) [obj]
           _ -> __IMPOSSIBLE__
