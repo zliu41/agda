@@ -220,7 +220,7 @@ instance Pretty Exp where
   pretty n (PreOp op e)      = parens $ text op <> " " <> pretty n e
   pretty n (BinOp e op f)    = parens $ pretty n e <> " " <> text op <> " " <> pretty n f
   pretty n (Const c)         = text c
-  pretty n (PlainJS js)      = parens $ text js
+  pretty n (PlainJS js)      = text js
 
 block :: (Nat, Bool) -> Exp -> Doc
 block n e = mparens (doNest e) $ pretty n e
