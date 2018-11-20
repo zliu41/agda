@@ -166,9 +166,7 @@ instance Pretty GlobalId where
   pretty n (GlobalId m) = text $ variableName $ intercalate "_" m
 
 instance Pretty MemberId where
-  pretty n (MemberId s) = "\"" <> unescapes s <> "\""
-
-instance Pretty MemberIndex where
+  pretty _ (MemberId s) = "\"" <> unescapes s <> "\""
   pretty _ (MemberIndex i) = text $ show i
 
 -- Pretty print expressions
@@ -190,7 +188,6 @@ instance Pretty Exp where
   pretty n (Array es)        = brackets $ punctuate "," $ pretties n es
   pretty n (Apply f es)      = pretty n f <> parens (punctuate "," $ pretties n es)
   pretty n (Lookup e l)      = pretty n e <> brackets (pretty n l)
-  pretty n (LookupIndex e l) = pretty n e <> brackets (pretty n l)
   pretty n (If e f g)        = parens $ pretty n e <> "? " <> pretty n f <> ": " <> pretty n g
   pretty n (PreOp op e)      = parens $ text op <> " " <> pretty n e
   pretty n (BinOp e op f)    = parens $ pretty n e <> " " <> text op <> " " <> pretty n f

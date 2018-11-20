@@ -27,13 +27,12 @@ data Exp =
   Array [Exp] |
   Apply Exp [Exp] |
   Lookup Exp MemberId |
-  LookupIndex Exp MemberIndex |
   If Exp Exp Exp |
   BinOp Exp String Exp |
   PreOp String Exp |
   Const String |
   PlainJS String -- ^ Arbitrary JS code.
-  deriving Show
+  deriving (Show, Eq)
 
 -- Local identifiers are named by De Bruijn indices.
 -- Global identifiers are named by string lists.
@@ -45,10 +44,9 @@ newtype LocalId = LocalId Nat
 newtype GlobalId = GlobalId [String]
   deriving (Eq, Ord, Show)
 
-newtype MemberId = MemberId String
-  deriving (Eq, Ord, Show)
-
-newtype MemberIndex = MemberIndex Int
+data MemberId
+    = MemberId String
+    | MemberIndex Int
   deriving (Eq, Ord, Show)
 
 -- The top-level compilation unit is a module, which names
@@ -82,7 +80,6 @@ instance Uses Exp where
       uses' Self         ls = singleton ls
       uses' (Lookup e l) ls = uses' e (l : ls)
       uses' e            ls = uses e
-  uses (LookupIndex e l) = uses e
   uses (If e f g)     = uses e `union` uses f `union` uses g
   uses (BinOp e op f) = uses e `union` uses f
   uses (PreOp op e)   = uses e
@@ -109,7 +106,6 @@ instance Globals Exp where
   globals (Array es) = globals es
   globals (Apply e es) = globals e `union` globals es
   globals (Lookup e l) = globals e
-  globals (LookupIndex e l) = globals e
   globals (If e f g) = globals e `union` globals f `union` globals g
   globals (BinOp e op f) = globals e `union` globals f
   globals (PreOp op e) = globals e
