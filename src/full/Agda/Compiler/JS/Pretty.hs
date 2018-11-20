@@ -167,7 +167,11 @@ instance Pretty GlobalId where
 
 instance Pretty MemberId where
   pretty _ (MemberId s) = "\"" <> unescapes s <> "\""
-  pretty _ (MemberIndex i) = text $ show i
+  pretty n (MemberIndex i comment) = text (show i) <> pretty n comment
+
+instance Pretty Comment where
+  pretty _ (Comment "") = mempty
+  pretty _ (Comment s) = text $ "/* " ++ s ++ " */"
 
 -- Pretty print expressions
 
@@ -185,7 +189,7 @@ instance Pretty Exp where
     mparens (x /= 1) (punctuate "," (pretties (n+x) (map LocalId [x-1, x-2 .. 0]))) <>
     " => " <> block (n+x) e
   pretty n (Object o)        = braces $ punctuate "," $ pretties n o
-  pretty n (Array es)        = brackets $ punctuate "," $ pretties n es
+  pretty n (Array es)        = brackets $ punctuate "," [pretty n c <> pretty n e | (c, e) <- es]
   pretty n (Apply f es)      = pretty n f <> parens (punctuate "," $ pretties n es)
   pretty n (Lookup e l)      = pretty n e <> brackets (pretty n l)
   pretty n (If e f g)        = parens $ pretty n e <> "? " <> pretty n f <> ": " <> pretty n g

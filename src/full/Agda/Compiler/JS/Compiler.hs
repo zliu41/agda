@@ -63,7 +63,7 @@ import Agda.Compiler.Backend (Backend(..), Backend'(..), Recompile(..))
 
 import Agda.Compiler.JS.Syntax
   ( Exp(Self,Local,Global,Undefined,Null,String,Char,Integer,Double,Lambda,Object,Array,Apply,Lookup,If,BinOp,PlainJS),
-    LocalId(LocalId), GlobalId(GlobalId), MemberId(MemberId,MemberIndex), Export(Export), Module(Module),
+    LocalId(LocalId), GlobalId(GlobalId), MemberId(MemberId,MemberIndex), Export(Export), Module(Module), Comment(Comment),
     modName, expName, uses )
 import Agda.Compiler.JS.Substitution
   ( curriedLambda, curriedApply, emp, subst, apply )
@@ -355,8 +355,11 @@ definition' kit q d t ls = do
             index | Datatype{} <- dt
                   , optJSOptimize (fst kit)
                   , cs <- defConstructors dt
-                  = MemberIndex $ headWithDefault __IMPOSSIBLE__ [ i | (i, x) <- zip [0..] cs, x == q ]
+                  = headWithDefault __IMPOSSIBLE__
+                      [MemberIndex i (mkComment $ last ls) | (i, x) <- zip [0..] cs, x == q]
                   | otherwise = last ls
+            mkComment (MemberId s) = Comment s
+            mkComment _ = mempty
 
     AbstractDefn{} -> __IMPOSSIBLE__
   where
@@ -403,7 +406,7 @@ compileTerm kit t = go t
         alts' <- traverse (compileAlt kit) alts
         let cs  = defConstructors $ theDef dt
             obj = Object $ Map.fromList [(snd x, y) | (x, y) <- alts']
-            arr = mkArray [headWithDefault Null [y | ((c', _), y) <- alts', c' == c] | c <- cs]
+            arr = mkArray [headWithDefault (mempty, Null) [(Comment s, y) | ((c', MemberId s), y) <- alts', c' == c] | c <- cs]
         case (theDef dt, defJSDef dt) of
           (_, Just e) -> do
             return $ apply (PlainJS e) [Local (LocalId sc), obj]
@@ -429,8 +432,8 @@ compileTerm kit t = go t
     unit = return Null
 
     mkArray xs
-        | 2 * length (filter (==Null) xs) <= length xs = Array xs
-        | otherwise = Object $ Map.fromList [(MemberIndex i, x) | (i, x) <- zip [0..] xs, x /= Null]
+        | 2 * length (filter ((==Null) . snd) xs) <= length xs = Array xs
+        | otherwise = Object $ Map.fromList [(MemberIndex i c, x) | (i, (c, x)) <- zip [0..] xs, x /= Null]
 
 compilePrim :: T.TPrim -> Exp
 compilePrim p =

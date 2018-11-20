@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Agda.Compiler.JS.Syntax where
 
@@ -24,7 +25,7 @@ data Exp =
   Double Double |
   Lambda Nat Exp |
   Object (Map MemberId Exp) |
-  Array [Exp] |
+  Array [(Comment, Exp)] |
   Apply Exp [Exp] |
   Lookup Exp MemberId |
   If Exp Exp Exp |
@@ -46,8 +47,14 @@ newtype GlobalId = GlobalId [String]
 
 data MemberId
     = MemberId String
-    | MemberIndex Int
+    | MemberIndex Int Comment
   deriving (Eq, Ord, Show)
+
+newtype Comment = Comment String
+  deriving (Show, Semigroup, Monoid)
+
+instance Eq Comment where _ == _ = True
+instance Ord Comment where compare _ _ = EQ
 
 -- The top-level compilation unit is a module, which names
 -- the GId of its exports, and a list of definitions
@@ -74,7 +81,7 @@ instance Uses a => Uses (Map k a) where
 
 instance Uses Exp where
   uses (Object o)     = Map.foldr (union . uses) empty o
-  uses (Array es)     = foldr (union . uses) empty es
+  uses (Array es)     = foldr (union . uses) empty $ map snd es
   uses (Apply e es)   = foldr (union . uses) (uses e) es
   uses (Lookup e l)   = uses' e [l] where
       uses' Self         ls = singleton ls
@@ -103,7 +110,7 @@ instance Globals Exp where
   globals (Global i) = singleton i
   globals (Lambda n e) = globals e
   globals (Object o) = globals o
-  globals (Array es) = globals es
+  globals (Array es) = globals (map snd es)
   globals (Apply e es) = globals e `union` globals es
   globals (Lookup e l) = globals e
   globals (If e f g) = globals e `union` globals f `union` globals g
