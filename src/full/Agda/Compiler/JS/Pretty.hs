@@ -240,6 +240,11 @@ exports n lss (Export ls e : es) | member (init ls) lss =
 exports n lss (Export ls e : es) | otherwise =
   exports n lss (Export (init ls) (Object mempty) : Export ls e : es)
 
+instance Pretty [(GlobalId, Export)] where
+  pretty n es
+    = vcat [ pretty n g <> hcat (map brackets (pretties n ls)) <> space <> "=" <> space <> indent (pretty n e) <> ";"
+           | (g, Export ls e) <- es ]
+
 instance Pretty Module where
   pretty n (Module m es ex) =
     imports
