@@ -25,15 +25,27 @@ data Doc
     | Beside Doc Doc
     | Above Doc Doc
     | Enclose Doc Doc Doc
+    | Space
     | Empty
 
-render :: Doc -> String
-render = intercalate "\n" . map (uncurry mkIndent) . go 0
+render :: Bool -> Doc -> String
+render minify = intercalate "\n" . joinLines . map (uncurry mkIndent) . go 0
   where
+    joinLines :: [String] -> [String]
+    joinLines = if minify then chunks 0 [] else id
+      where
+        chunks len acc [] = [concat (reverse acc)]
+        chunks len acc (s: ss)
+            | len + n <= 500 = chunks (len + n) (s: acc) ss
+            | otherwise = concat (reverse acc): chunks n [s] ss
+          where
+            n = length s
+
     joinBy f [x] (y: ys) = f x y ++ ys
     joinBy f (x:xs) ys = x: joinBy f xs ys
     joinBy f xs ys = xs ++ ys
 
+    mkIndent n s | minify = s
     mkIndent n "" = ""
     mkIndent n s = replicate n ' ' ++ s
 
@@ -45,6 +57,7 @@ render = intercalate "\n" . map (uncurry mkIndent) . go 0
 
     punctuation = (`elem` ("(){}[];:, " :: String))
 
+    go i Space = if minify then [] else [(i, " ")]
     go i Empty = []
     go i (Doc s) = [(i, s)]
     go i (Beside d d') = joinBy (\(i, s) (_, s') -> [(i, s ++ s')]) (go i d) (go i d')
@@ -96,6 +109,9 @@ enclose open close d = Enclose open close d
 
 ----------------------------------------------------------------------------------------------
 
+space :: Doc
+space = Space
+
 indent :: Doc -> Doc
 indent = indentBy 2
 
@@ -142,10 +158,10 @@ class Pretty a where
     pretty :: (Nat, Bool) -> a -> Doc
 
 prettyShow :: Pretty a => Bool -> a -> String
-prettyShow minify = render . pretty (0, minify)
+prettyShow minify = render minify . pretty (0, minify)
 
 instance (Pretty a, Pretty b) => Pretty (a,b) where
-  pretty n (x,y) = pretty n x <> ": " <> pretty n y
+  pretty n (x,y) = pretty n x <> ":" <> space <> pretty n y
 
 -- Pretty-print collections
 
@@ -189,12 +205,12 @@ instance Pretty Exp where
   pretty n (Double x)        = text $ show x
   pretty (n, min) (Lambda x e) =
     mparens (x /= 1) (punctuate "," (pretties (n+x, min) (map LocalId [x-1, x-2 .. 0]))) <>
-    " => " <> block (n+x, min) e
+    space <> "=>" <> space <> block (n+x, min) e
   pretty n (Object o)        = braces $ punctuate "," $ pretties n o
   pretty n (Array es)        = brackets $ punctuate "," [pretty n c <> pretty n e | (c, e) <- es]
   pretty n (Apply f es)      = pretty n f <> parens (punctuate "," $ pretties n es)
   pretty n (Lookup e l)      = pretty n e <> brackets (pretty n l)
-  pretty n (If e f g)        = parens $ pretty n e <> "? " <> pretty n f <> ": " <> pretty n g
+  pretty n (If e f g)        = parens $ pretty n e <> "?" <> space <> pretty n f <> ":" <> space <> pretty n g
   pretty n (PreOp op e)      = parens $ text op <> " " <> pretty n e
   pretty n (BinOp e op f)    = parens $ pretty n e <> " " <> text op <> " " <> pretty n f
   pretty n (Const c)         = text c
@@ -213,7 +229,7 @@ modname (GlobalId ms) = text $ "\"" ++ intercalate "." ms ++ "\""
 exports :: (Nat, Bool) -> Set [MemberId] -> [Export] -> Doc
 exports n lss [] = ""
 exports n lss (Export ls e : es) | member (init ls) lss =
-  "exports" <> hcat (map brackets (pretties n ls)) <> " = " <> indent (pretty n e) <> ";" $+$
+  "exports" <> hcat (map brackets (pretties n ls)) <> space <> "=" <> space <> indent (pretty n e) <> ";" $+$
   exports n (insert ls lss) es
 exports n lss (Export ls e : es) | otherwise =
   exports n lss (Export (init ls) (Object mempty) : Export ls e : es)
@@ -226,8 +242,8 @@ instance Pretty Module where
     where
       js = toList (globals es)
       imports = vcat $
-            ["var agdaRTS = require(\"agda-rts\");"] ++
-            ["var " <> indent (pretty n e) <> " = require(" <> modname e <> ");"
+            ["var agdaRTS" <> space <> "=" <> space <> "require(\"agda-rts\");"] ++
+            ["var " <> indent (pretty n e) <> space <> "=" <> space <> "require(" <> modname e <> ");"
             | e <- js]
 
 variableName :: String -> String
