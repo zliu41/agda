@@ -103,22 +103,26 @@ jsBackend' = Backend'
 data JSOptions = JSOptions
   { optJSCompile :: Bool
   , optJSOptimize :: Bool
+  , optJSMinify :: Bool
   }
 
 defaultJSOptions :: JSOptions
 defaultJSOptions = JSOptions
   { optJSCompile = False
   , optJSOptimize = False
+  , optJSMinify = False
   }
 
 jsCommandLineFlags :: [OptDescr (Flag JSOptions)]
 jsCommandLineFlags =
     [ Option [] ["js"] (NoArg enable) "compile program using the JS backend"
     , Option [] ["js-optimize"] (NoArg enableOpt) "turn on optimizations during JS code generation"
+    , Option [] ["js-minify"] (NoArg enableMin) "minify generated JS code"
     ]
   where
     enable o = pure o{ optJSCompile = True }
     enableOpt o = pure o{ optJSOptimize = True }
+    enableMin o = pure o{ optJSMinify = True }
 
 --- Top-level compilation ---
 
@@ -148,11 +152,11 @@ jsPreModule _ m ifile = ifM uptodate noComp yesComp
       Recompile <$> coinductionKit
 
 jsPostModule :: JSOptions -> JSModuleEnv -> IsMain -> ModuleName -> [Maybe Export] -> TCM ()
-jsPostModule _ _ isMain _ defs = do
+jsPostModule opts _ isMain _ defs = do
   m             <- jsMod <$> curMName
   is            <- map (jsMod . fst) . iImportedModules <$> curIF
   let es = catMaybes defs
-  writeModule $ Module m (reorder es) main
+  writeModule (optJSMinify opts) $ Module m (reorder es) main
   where
     main = case isMain of
       IsMain  -> Just $ Apply (Lookup Self $ MemberId "main") [Lambda 1 emp]
@@ -527,10 +531,10 @@ litqname q =
 -- Writing out an ECMAScript module
 --------------------------------------------------
 
-writeModule :: Module -> TCM ()
-writeModule m = do
+writeModule :: Bool -> Module -> TCM ()
+writeModule minify m = do
   out <- outFile (modName m)
-  liftIO (writeFile out (JSPretty.prettyShow m))
+  liftIO (writeFile out (JSPretty.prettyShow minify m))
 
 outFile :: GlobalId -> TCM FilePath
 outFile m = do

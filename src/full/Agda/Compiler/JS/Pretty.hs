@@ -135,13 +135,14 @@ unescape c        = [c]
 unescapes :: String -> Doc
 unescapes s = text $ concatMap unescape s
 
--- pretty n i e pretty-prints e, under n levels of de Bruijn binding
+-- pretty (n,b) i e pretty-prints e, under n levels of de Bruijn binding
+--   if b is true then the output is minified
 
 class Pretty a where
-    pretty :: Nat -> a -> Doc
+    pretty :: (Nat, Bool) -> a -> Doc
 
-prettyShow :: Pretty a => a -> String
-prettyShow = render . pretty 0
+prettyShow :: Pretty a => Bool -> a -> String
+prettyShow minify = render . pretty (0, minify)
 
 instance (Pretty a, Pretty b) => Pretty (a,b) where
   pretty n (x,y) = pretty n x <> ": " <> pretty n y
@@ -149,7 +150,7 @@ instance (Pretty a, Pretty b) => Pretty (a,b) where
 -- Pretty-print collections
 
 class Pretties a where
-    pretties :: Nat -> a -> [Doc]
+    pretties :: (Nat, Bool) -> a -> [Doc]
 
 instance Pretty a => Pretties [a] where
   pretties n = map (pretty n)
@@ -160,7 +161,7 @@ instance (Pretty a, Pretty b) => Pretties (Map a b) where
 -- Pretty print identifiers
 
 instance Pretty LocalId where
-  pretty n (LocalId x) = "x" <> text (show $ n - x - 1)
+  pretty (n, _) (LocalId x) = "x" <> text (show $ n - x - 1)
 
 instance Pretty GlobalId where
   pretty n (GlobalId m) = text $ variableName $ intercalate "_" m
@@ -171,6 +172,7 @@ instance Pretty MemberId where
 
 instance Pretty Comment where
   pretty _ (Comment "") = mempty
+  pretty (_, True) _ = mempty
   pretty _ (Comment s) = text $ "/* " ++ s ++ " */"
 
 -- Pretty print expressions
@@ -185,9 +187,9 @@ instance Pretty Exp where
   pretty n (Char c)          = "\"" <> unescapes [c] <> "\""
   pretty n (Integer x)       = "agdaRTS.primIntegerFromString(\"" <> text (show x) <> "\")"
   pretty n (Double x)        = text $ show x
-  pretty n (Lambda x e)      =
-    mparens (x /= 1) (punctuate "," (pretties (n+x) (map LocalId [x-1, x-2 .. 0]))) <>
-    " => " <> block (n+x) e
+  pretty (n, min) (Lambda x e) =
+    mparens (x /= 1) (punctuate "," (pretties (n+x, min) (map LocalId [x-1, x-2 .. 0]))) <>
+    " => " <> block (n+x, min) e
   pretty n (Object o)        = braces $ punctuate "," $ pretties n o
   pretty n (Array es)        = brackets $ punctuate "," [pretty n c <> pretty n e | (c, e) <- es]
   pretty n (Apply f es)      = pretty n f <> parens (punctuate "," $ pretties n es)
@@ -198,7 +200,7 @@ instance Pretty Exp where
   pretty n (Const c)         = text c
   pretty n (PlainJS js)      = parens $ text js
 
-block :: Nat -> Exp -> Doc
+block :: (Nat, Bool) -> Exp -> Doc
 block n e = mparens (doNest e) $ pretty n e
   where
     doNest Object{} = True
@@ -208,7 +210,7 @@ modname :: GlobalId -> Doc
 modname (GlobalId ms) = text $ "\"" ++ intercalate "." ms ++ "\""
 
 
-exports :: Nat -> Set [MemberId] -> [Export] -> Doc
+exports :: (Nat, Bool) -> Set [MemberId] -> [Export] -> Doc
 exports n lss [] = ""
 exports n lss (Export ls e : es) | member (init ls) lss =
   "exports" <> hcat (map brackets (pretties n ls)) <> " = " <> indent (pretty n e) <> ";" $+$
