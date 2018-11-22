@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP            #-}
+{-# LANGUAGE CPP #-}
 
 module Agda.Compiler.JS.Compiler where
 
@@ -33,14 +33,13 @@ import Agda.Syntax.Position
 import Agda.Syntax.Literal ( Literal(..) )
 import Agda.Syntax.Fixity
 import qualified Agda.Syntax.Treeless as T
-import Agda.TypeChecking.Substitute ( absBody )
 import Agda.TypeChecking.Level ( reallyUnLevelView )
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Monad.Builtin
 import Agda.TypeChecking.Monad.Debug ( reportSLn )
 import Agda.TypeChecking.Monad.Options ( setCommandLineOptions )
 import Agda.TypeChecking.Reduce ( instantiateFull, normalise )
-import Agda.TypeChecking.Substitute (TelV(..))
+import Agda.TypeChecking.Substitute as TC ( TelV(..), raise, subst )
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Pretty
 import Agda.Utils.FileName ( filePath )
@@ -59,6 +58,8 @@ import Agda.Compiler.ToTreeless
 import Agda.Compiler.Treeless.EliminateDefaults
 import Agda.Compiler.Treeless.EliminateLiteralPatterns
 import Agda.Compiler.Treeless.GuardsToPrims
+import Agda.Compiler.Treeless.Erase ( computeErasedConstructorArgs )
+import Agda.Compiler.Treeless.Subst ()
 import Agda.Compiler.Backend (Backend(..), Backend'(..), Recompile(..))
 
 import Agda.Compiler.JS.Syntax
@@ -66,7 +67,7 @@ import Agda.Compiler.JS.Syntax
     LocalId(LocalId), GlobalId(GlobalId), MemberId(MemberId,MemberIndex), Export(Export), Module(Module), Comment(Comment),
     modName, expName, uses )
 import Agda.Compiler.JS.Substitution
-  ( curriedLambda, curriedApply, emp, subst, apply )
+  ( curriedLambda, curriedApply, emp, apply )
 import qualified Agda.Compiler.JS.Pretty as JSPretty
 
 import Agda.Interaction.Options
@@ -340,11 +341,26 @@ definition' kit q d t ls = do
 
       reportSDoc "compile.js" 5 $ "compiling fun:" <+> prettyTCM q
       caseMaybeM (toTreeless q) (pure Nothing) $ \ treeless -> do
+        used <- getCompiledArgUse q
         funBody <- eliminateCaseDefaults =<<
           eliminateLiteralPatterns
           (convertGuards treeless)
         reportSDoc "compile.js" 30 $ " compiled treeless fun:" <+> pretty funBody
-        funBody' <- compileTerm kit funBody
+
+        let (body, given) = lamView funBody
+              where
+                lamView :: T.TTerm -> (T.TTerm, Int)
+                lamView (T.TLam t) = (+1) <$> lamView t
+                lamView t = (t, 0)
+
+            -- number of eta expanded args
+            etaN = length $ dropWhile id $ reverse $ drop given used
+
+        funBody' <- compileTerm kit
+                  $ iterate' (given + etaN - length (filter not used)) T.TLam
+                  $ eraseLocalVars (map not used)
+                  $ T.mkTApp (raise etaN body) (T.TVar <$> [etaN-1, etaN-2 .. 0])
+
         reportSDoc "compile.js" 30 $ " compiled JS fun:" <+> (text . show) funBody'
         return $ Just $ Export ls funBody'
 
@@ -353,26 +369,28 @@ definition' kit q d t ls = do
     Primitive{} | Just e <- defJSDef d -> plainJS e
     Primitive{} | otherwise -> ret Undefined
 
-    Datatype{} -> ret emp
-    Record{} -> return Nothing
+    Datatype{} -> do
+        computeErasedConstructorArgs q
+        ret emp
+    Record{} -> do
+        computeErasedConstructorArgs q
+        return Nothing
 
     Constructor{} | Just e <- defJSDef d -> plainJS e
-    Constructor{conData = p, conPars = nc} | otherwise -> do
+    Constructor{conData = p, conPars = nc} -> do
       np <- return (arity t - nc)
+      erased <- getErasedConArgs q
+      let nargs = np - length (filter id erased)
+          args = [ Local $ LocalId $ nargs - i | i <- [0 .. nargs-1] ]
       d <- getConstInfo p
       case theDef d of
         Record { recFields = flds } ->
-          ret (curriedLambda np (wrapRecord $ Lambda 1
-                 (Apply (Local (LocalId 0))
-                   [ Local (LocalId (np - i)) | i <- [0 .. np-1] ])
-            ))
+          ret $ curriedLambda nargs $ wrapRecord $ Lambda 1 $ Apply (Local (LocalId 0)) args
           where
             wrapRecord e | optJSOptimize (fst kit) = e
                          | otherwise = Object $ fromList [ (last ls, e) ]
         dt ->
-          ret (curriedLambda (np + 1)
-            (Apply (Lookup (Local (LocalId 0)) index)
-              [ Local (LocalId (np - i)) | i <- [0 .. np-1] ]))
+          ret $ curriedLambda (nargs + 1) $ Apply (Lookup (Local (LocalId 0)) index) args
           where
             index | Datatype{} <- dt
                   , optJSOptimize (fst kit)
@@ -415,7 +433,20 @@ compileTerm kit t = go t
         return $ Object $ Map.fromList
           [(flatName, PlainJS evalThunk)
           ,(MemberId "__flat_helper", Lambda 0 x)]
-      T.TApp t xs -> curriedApply <$> go t <*> mapM go xs
+      T.TApp t' xs | Just f <- getDef t' -> do
+        used <- either getCompiledArgUse (\x -> fmap (map not) $ getErasedConArgs x) f
+        let given = length xs
+
+            -- number of eta expanded args
+            etaN = length $ dropWhile id $ reverse $ drop given used
+
+            xs' = xs ++ (T.TVar <$> [etaN-1, etaN-2 .. 0])
+            args = [ t | (t, True) <- zip xs' $ used ++ repeat True ]
+
+        curriedLambda etaN <$> (curriedApply <$> go (raise etaN t') <*> mapM go args)
+
+      T.TApp t xs -> do
+            curriedApply <$> go t <*> mapM go xs
       T.TLam t -> Lambda 1 <$> go t
       -- TODO This is not a lazy let, but it should be...
       T.TLet t e -> apply <$> (Lambda 1 <$> go e) <*> traverse go [t]
@@ -450,6 +481,11 @@ compileTerm kit t = go t
       T.TErased -> unit
       T.TError T.TUnreachable -> return Undefined
       T.TCoerce t -> go t
+
+    getDef (T.TDef f) = Just (Left f)
+    getDef (T.TCon c) = Just (Right c)
+    getDef (T.TCoerce x) = getDef x
+    getDef _ = Nothing
 
     unit = return Null
 
@@ -491,10 +527,17 @@ compilePrim p =
 compileAlt :: EnvWithOpts -> T.TAlt -> TCM ((QName, MemberId), Exp)
 compileAlt kit a = case a of
   T.TACon con ar body -> do
+    erased <- getErasedConArgs con
+    let nargs = ar - length (filter id erased)
     memId <- visitorName con
-    body <- Lambda ar <$> compileTerm kit body
+    body <- Lambda nargs <$> compileTerm kit (eraseLocalVars erased body)
     return ((con, memId), body)
   _ -> __IMPOSSIBLE__
+
+eraseLocalVars :: [Bool] -> T.TTerm -> T.TTerm
+eraseLocalVars [] x = x
+eraseLocalVars (False: es) x = eraseLocalVars es x
+eraseLocalVars (True: es) x = eraseLocalVars es (TC.subst (length es) T.TErased x)
 
 visitorName :: QName -> TCM MemberId
 visitorName q = do (m,ls) <- global q; return (last ls)
