@@ -8,8 +8,8 @@ import qualified Data.List as List
 
 import Agda.Syntax.Common ( Nat )
 import Agda.Compiler.JS.Syntax
-  ( Exp(Self,Undefined,Local,Lambda,Object,Array,Apply,Lookup,If,BinOp,PreOp),
-    MemberId, LocalId(LocalId) )
+  ( Exp(Self,Global,Undefined,Local,Lambda,Object,Array,Apply,Lookup,If,BinOp,PreOp),
+    MemberId, LocalId(LocalId), GlobalId(GlobalId) )
 import Agda.Utils.Function ( iterate' )
 import Agda.Utils.List ( indexWithDefault )
 
@@ -79,14 +79,13 @@ lookup :: Exp -> MemberId -> Exp
 lookup (Object o) l = findWithDefault Undefined l o
 lookup e          l = Lookup e l
 
--- Replace any top-level occurrences of self
--- (needed because JS is a cbv language, so any top-level
--- recursions would evaluate before the module has been defined,
--- e.g. exports = { x: 1, y: exports.x } results in an exception,
--- as exports is undefined at the point that exports.x is evaluated),
-
-self :: Exp -> Exp -> Exp
-self e (Self)         = e
+-- Replace global variables and Self
+--  note that `self` does not do de Bruijn level lifting on the replaced expressions;
+--  if you need this feature implement it
+self :: (GlobalId -> Exp) -> Exp -> Exp
+self e (Global n)     = e n
+self e Self           = e $ GlobalId []
+self e (Lambda i f)   = Lambda i $ self e f
 self e (Object o)     = Object (Map.map (self e) o)
 self e (Array es)     = Array (List.map (\(c, x) -> (c, self e x)) es)
 self e (Apply f es)   = case (self e f) of
