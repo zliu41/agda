@@ -3,10 +3,12 @@
 
 module Agda.Compiler.JS.Syntax where
 
+import Data.Maybe ( catMaybes )
 import Data.Map ( Map )
 import qualified Data.Map as Map
 
 import Data.Set ( Set, empty, singleton, union )
+import qualified Data.Set as Set
 
 import Agda.Syntax.Common ( Nat )
 
@@ -68,58 +70,36 @@ data Module = Module { modName :: GlobalId, exports :: [Export], postscript :: M
 -- Note that modules are allowed to be recursive, via the Self expression,
 -- which is bound to the exported module.
 
--- Top-level uses of the form exports.l1....lN.
-
 class Uses a where
-  uses :: a -> Set [MemberId]
+  uses :: Bool{-go under lambdas-} -> a -> Set (Maybe GlobalId, [MemberId])
 
 instance Uses a => Uses [a] where
-  uses = foldr (union . uses) empty
+  uses lam = foldr (union . uses lam) empty
 
 instance Uses a => Uses (Map k a) where
-  uses = Map.foldr (union . uses) empty
+  uses lam = Map.foldr (union . uses lam) empty
 
 instance Uses Exp where
-  uses (Object o)     = Map.foldr (union . uses) empty o
-  uses (Array es)     = foldr (union . uses) empty $ map snd es
-  uses (Apply e es)   = foldr (union . uses) (uses e) es
-  uses (Lookup e l)   = uses' e [l] where
-      uses' Self         ls = singleton ls
+  uses True (Lambda n e)   = uses True e
+  uses lam (Object o)     = uses lam o
+  uses lam (Array es)     = uses lam $ map snd es
+  uses lam (Apply e es)   = uses lam e `union` uses lam es
+  uses lam (Lookup e l)   = uses' e [l] where
+      uses' Self         ls = singleton (Nothing, ls)
+      uses' (Global i)   ls = singleton (Just i, ls)
       uses' (Lookup e l) ls = uses' e (l : ls)
-      uses' e            ls = uses e
-  uses (If e f g)     = uses e `union` uses f `union` uses g
-  uses (BinOp e op f) = uses e `union` uses f
-  uses (PreOp op e)   = uses e
-  uses e              = empty
+      uses' e            ls = uses lam e
+  uses lam (If e f g)     = uses lam e `union` uses lam f `union` uses lam g
+  uses lam (BinOp e op f) = uses lam e `union` uses lam f
+  uses lam (PreOp op e)   = uses lam e
+  uses _ e              = empty
 
 instance Uses Export where
-  uses (Export _ e) = uses e
+  uses lam (Export _ e) = uses lam e
 
--- All global ids
+instance Uses Module where
+  uses lam (Module m es _) = uses lam es
 
-class Globals a where
-  globals :: a -> Set GlobalId
-
-instance Globals a => Globals [a] where
-  globals = foldr (union . globals) empty
-
-instance Globals a => Globals (Map k a) where
-  globals = Map.foldr (union . globals) empty
-
-instance Globals Exp where
-  globals (Global i) = singleton i
-  globals (Lambda n e) = globals e
-  globals (Object o) = globals o
-  globals (Array es) = globals (map snd es)
-  globals (Apply e es) = globals e `union` globals es
-  globals (Lookup e l) = globals e
-  globals (If e f g) = globals e `union` globals f `union` globals g
-  globals (BinOp e op f) = globals e `union` globals f
-  globals (PreOp op e) = globals e
-  globals _ = empty
-
-instance Globals Export where
-  globals (Export _ e) = globals e
-
-instance Globals Module where
-  globals (Module m es _) = globals es
+-- Top-level uses of the form exports.l1....lN.
+globals :: Uses a => a -> Set GlobalId
+globals = Set.fromList . catMaybes . map fst . Set.toList . uses True
