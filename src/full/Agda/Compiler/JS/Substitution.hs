@@ -9,7 +9,7 @@ import qualified Data.List as List
 import Agda.Syntax.Common ( Nat )
 import Agda.Compiler.JS.Syntax
   ( Exp(Self,Global,Undefined,Local,Lambda,Object,Array,Apply,Lookup,If,BinOp,PreOp),
-    MemberId, LocalId(LocalId), GlobalId(GlobalId) )
+    MemberId(MemberId), LocalId(LocalId), GlobalId(GlobalId) )
 import Agda.Utils.Function ( iterate' )
 import Agda.Utils.List ( indexWithDefault )
 
@@ -82,15 +82,20 @@ lookup e          l = Lookup e l
 -- Replace global variables and Self
 --  note that `self` does not do de Bruijn level lifting on the replaced expressions;
 --  if you need this feature implement it
-self :: (GlobalId -> Exp) -> Exp -> Exp
-self e (Global n)     = e n
-self e Self           = e $ GlobalId []
+self :: (GlobalId -> [String] -> Exp) -> Exp -> Exp
+self e (Global n)     = e n []
+self e Self           = e (GlobalId []) []
 self e (Lambda i f)   = Lambda i $ self e f
 self e (Object o)     = Object (Map.map (self e) o)
 self e (Array es)     = Array (List.map (\(c, x) -> (c, self e x)) es)
 self e (Apply f es)   = case (self e f) of
   (Lambda n g) -> self e (subst' n es g)
   g            -> Apply g (List.map (self e) es)
+self e (Lookup f (MemberId l)) = self' f [l] where
+    self' (Global i)   ls = e i ls
+    self' Self         ls = e (GlobalId []) ls
+    self' (Lookup x (MemberId l)) ls = self' x (l : ls)
+    self' x            ls = foldl lookup (self e x) (MemberId <$> ls)
 self e (Lookup f l)   = lookup (self e f) l
 self e (If f g h)     = If (self e f) (self e g) (self e h)
 self e (BinOp f op g) = BinOp (self e f) op (self e g)

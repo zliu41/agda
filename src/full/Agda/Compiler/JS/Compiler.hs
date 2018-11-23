@@ -165,14 +165,14 @@ mergeModules exts ms
   where
     allDef :: Map.Map JSId Exp
     allDef = Map.fromList
-      [ (ns ++ [s | MemberId s <- ename], self (foldl (\e n -> Lookup e $ MemberId n) Self . mkId ns) def)
+      [ (ns ++ [s | MemberId s <- ename], self ((foldl (\e n -> Lookup e $ MemberId n) Self .) . mkId ns) def)
       | (_, Module (GlobalId ("jAgda": ns)) es _) <- Map.toList ms
       , Export ename def <- es
       ]
 
-    mkId :: [String] -> GlobalId -> [String]
-    mkId _ (GlobalId ("jAgda": gs)) = gs
-    mkId ns _ = ns
+    mkId :: [String] -> GlobalId -> [String] -> [String]
+    mkId _ (GlobalId ("jAgda": gs)) is = gs ++ is
+    mkId ns _ is = ns ++ is
 
     graph :: Graph JSId ()
     graph = fromEdges
