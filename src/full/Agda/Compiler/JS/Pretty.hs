@@ -4,7 +4,7 @@ module Agda.Compiler.JS.Pretty where
 import Data.List ( intercalate )
 import Data.String ( IsString (fromString) )
 import Data.Set ( Set, toList, singleton, insert, member )
-import Data.Map ( Map, toAscList )
+import Data.Map as Map ( Map, toAscList, null )
 import Text.Regex.TDFA (makeRegex, matchTest, Regex)
 
 import Agda.Syntax.Common ( Nat )
@@ -234,16 +234,15 @@ modname (GlobalId ms) = text $ "\"" ++ intercalate "." ms ++ "\""
 
 exports :: (Nat, Bool) -> Set [MemberId] -> [Export] -> Doc
 exports n lss [] = ""
+exports n lss (Export ls (Object o) : es) | Map.null o && member ls lss = exports n lss es
 exports n lss (Export ls e : es) | member (init ls) lss =
   "exports" <> hcat (map brackets (pretties n ls)) <> space <> "=" <> space <> indent (pretty n e) <> ";" $+$
   exports n (insert ls lss) es
 exports n lss (Export ls e : es) | otherwise =
   exports n lss (Export (init ls) (Object mempty) : Export ls e : es)
 
-instance Pretty [(GlobalId, Export)] where
-  pretty n es
-    = vcat [ pretty n g <> hcat (map brackets (pretties n ls)) <> space <> "=" <> space <> indent (pretty n e) <> ";"
-           | (g, Export ls e) <- es ]
+instance Pretty [Export] where
+  pretty n es = exports n (singleton []) es
 
 instance Pretty Module where
   pretty n (Module m es ex) =

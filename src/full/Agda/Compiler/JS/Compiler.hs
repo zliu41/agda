@@ -2,13 +2,13 @@
 
 module Agda.Compiler.JS.Compiler where
 
-import Prelude hiding ( null, writeFile )
+import Prelude hiding ( writeFile )
 import Control.Monad.Reader ( liftIO, when )
 import Control.Monad.Trans
 import Data.Char ( isSpace )
 import Data.List ( intercalate, genericLength, partition )
 import Data.Maybe ( isJust )
-import Data.Set ( Set, null, insert, difference, delete )
+import Data.Set ( Set, insert, difference, delete )
 import Data.Traversable (traverse)
 import Data.Map ( fromList, elems )
 import qualified Data.Set as Set
@@ -49,6 +49,7 @@ import Agda.Utils.Maybe
 import Agda.Utils.Monad ( (<$>), (<*>), ifM )
 import Agda.Utils.Pretty (prettyShow)
 import qualified Agda.Utils.Pretty as P
+import Agda.Utils.Graph.AdjacencyMap.Unidirectional ( Graph, Edge(..), fromEdges, sccs, reachableFromSet )
 import Agda.Utils.IO.Directory
 import Agda.Utils.IO.UTF8 ( writeFile )
 import qualified Agda.Utils.HashMap as HMap
@@ -67,7 +68,7 @@ import Agda.Compiler.JS.Syntax
     LocalId(LocalId), GlobalId(GlobalId), MemberId(MemberId,MemberIndex), Export(Export), Module(Module), Comment(Comment),
     modName, expName, uses )
 import Agda.Compiler.JS.Substitution
-  ( curriedLambda, curriedApply, emp, apply )
+  ( curriedLambda, curriedApply, emp, apply, self )
 import qualified Agda.Compiler.JS.Pretty as JSPretty
 
 import Agda.Interaction.Options
@@ -106,6 +107,7 @@ data JSOptions = JSOptions
   , optJSOptimize :: Bool
   , optJSMinify :: Bool
   , optJSOutput :: Maybe String
+  , optJSExternals :: Maybe String
   }
 
 defaultJSOptions :: JSOptions
@@ -114,6 +116,7 @@ defaultJSOptions = JSOptions
   , optJSOptimize = False
   , optJSMinify = False
   , optJSOutput = Nothing
+  , optJSExternals = Nothing
   }
 
 jsCommandLineFlags :: [OptDescr (Flag JSOptions)]
@@ -122,12 +125,14 @@ jsCommandLineFlags =
     , Option [] ["js-optimize"] (NoArg enableOpt) "turn on optimizations during JS code generation"
     , Option [] ["js-minify"] (NoArg enableMin) "minify generated JS code"
     , Option [] ["js-output"] (ReqArg outputFileFlag "FILE") "write concatenated JS code to file"
+    , Option [] ["js-externals"] (ReqArg externalsFileFlag "FILE") "text file containing external JS function names"
     ]
   where
     enable o = pure o{ optJSCompile = True }
     enableOpt o = pure o{ optJSOptimize = True }
     enableMin o = pure o{ optJSMinify = True }
     outputFileFlag f o = pure o{ optJSOutput = Just f }
+    externalsFileFlag f o = pure o{ optJSExternals = Just f }
 
 --- Top-level compilation ---
 
@@ -138,14 +143,47 @@ jsPostCompile :: JSOptions -> IsMain -> Map.Map ModuleName Module -> TCM ()
 jsPostCompile opts _ ms = case optJSOutput opts of
     Nothing -> copyRTEModules
     Just output -> do
-      liftIO $ writeFile output $ JSPretty.prettyShow (optJSMinify opts) $ mergeModules ms
+      exts <- case optJSExternals opts of
+        Just fn -> do
+            s <- liftIO $ readFile fn
+            let mkId s = case span (/='.') s of
+                    (s, []) -> [s]
+                    (s1, '.': s2) -> s1: mkId s2
+                    _ -> __IMPOSSIBLE__
+            pure $ map mkId $ filter (not . null) $ map (reverse . dropWhile isSpace . reverse . dropWhile isSpace) $ lines s
+        Nothing -> pure []
+      liftIO $ writeFile output $ JSPretty.prettyShow (optJSMinify opts) $ mergeModules exts ms
 
-mergeModules :: Map.Map ModuleName Module -> [(GlobalId, Export)]
-mergeModules ms
-    = [ (jsMod n, e)
-      | (n, Module _ es _) <- Map.toList ms
-      , e <- es
+-- global identifiers of JavaScript definitions (module path + inner module accessor)
+type JSId = [String]
+
+mergeModules :: [JSId] -> Map.Map ModuleName Module -> [Export]
+mergeModules exts ms
+    = [ Export (map MemberId n) $ fromMaybe (error $ show n) $ Map.lookup n allDef
+      | n <- concat $ sccs graph
+      , null exts || Set.member n notDead ]
+  where
+    allDef :: Map.Map JSId Exp
+    allDef = Map.fromList
+      [ (ns ++ [s | MemberId s <- ename], self (foldl (\e n -> Lookup e $ MemberId n) Self . mkId ns) def)
+      | (_, Module (GlobalId ("jAgda": ns)) es _) <- Map.toList ms
+      , Export ename def <- es
       ]
+
+    mkId :: [String] -> GlobalId -> [String]
+    mkId _ (GlobalId ("jAgda": gs)) = gs
+    mkId ns _ = ns
+
+    graph :: Graph JSId ()
+    graph = fromEdges
+      [ e
+      | (n, def) <- Map.toList allDef
+      , e <- Edge n n ()
+          : [ Edge n [s | MemberId s <- dep] () | (_, dep) <- Set.toList $ uses True def]
+      ]
+
+    notDead :: Set JSId
+    notDead = reachableFromSet graph $ Set.fromList exts
 
 --- Module compilation ---
 
@@ -254,7 +292,7 @@ reorder' :: Set [MemberId] -> [Export] -> [Export]
 reorder' defs [] = []
 reorder' defs (e : es) =
   let us = Set.fromList (map snd $ filter (isNothing . fst) $ Set.toList $ uses False e) `difference` defs in
-  case null us of
+  case Set.null us of
     True -> e : (reorder' (insert (expName e) defs) es)
     False -> reorder' defs (insertAfter us e es)
 
@@ -273,7 +311,7 @@ isEmptyObject (Export _ e) = case e of
 
 insertAfter :: Set [MemberId] -> Export -> [Export] -> [Export]
 insertAfter us e []                 = [e]
-insertAfter us e (f:fs) | null us   = e : f : fs
+insertAfter us e (f:fs) | Set.null us = e : f : fs
 insertAfter us e (f:fs) | otherwise = f : insertAfter (delete (expName f) us) e fs
 
 --------------------------------------------------
