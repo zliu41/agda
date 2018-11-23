@@ -244,6 +244,9 @@ exports n lss (Export ls e : es) | otherwise =
 instance Pretty [Export] where
   pretty n es = exports n (singleton []) es
 
+instance Pretty [(String, Exp)] where
+  pretty n es = vcat [text name <> space <> "=" <> space <> pretty n e <> ";" | (name, e) <- es]
+
 instance Pretty Module where
   pretty n (Module m es ex) =
     imports

@@ -146,13 +146,43 @@ jsPostCompile opts _ ms = case optJSOutput opts of
       exts <- case optJSExternals opts of
         Just fn -> do
             s <- liftIO $ readFile fn
-            let mkId s = case span (/='.') s of
+
+            let mkId s | (a, ' ': b) <- span (/=' ') s = (mkId' a, b)
+                mkId s | x <- mkId' s = (x, intercalate "_" x)
+
+                mkId' s = case span (/='.') s of
                     (s, []) -> [s]
-                    (s1, '.': s2) -> s1: mkId s2
+                    (s1, '.': s2) -> s1: mkId' s2
                     _ -> __IMPOSSIBLE__
+
             pure $ map mkId $ filter (not . null) $ map (reverse . dropWhile isSpace . reverse . dropWhile isSpace) $ lines s
         Nothing -> pure []
-      liftIO $ writeFile output $ JSPretty.prettyShow (optJSMinify opts) $ mergeModules exts ms
+
+      let printModule [] m = JSPretty.prettyShow (optJSMinify opts) m
+          printModule exts m = JSPretty.prettyShow (optJSMinify opts)
+            [(rename $ getName n, self mkId e) | Export n e <- m]
+             where
+                names :: Map.Map [String] String
+                names = Map.fromList $ zipWith chooseName [getName n | Export n e <- m] $ filter (`notElem` reservedNames) shortNames
+
+                chooseName a b = (a, fromMaybe b $ lookup a exts)
+
+                getName n = [s | MemberId s <- n]
+
+                rename n = fromMaybe __IMPOSSIBLE__ $ Map.lookup n names
+
+                mkId _ xs = PlainJS $ rename xs
+
+                -- reserved JavaScript words containing 2 characters
+                reservedNames = ["do","if","in"]
+
+                shortNames = do
+                    cs <- "": map show [0..]
+                    c1 <- ['a'..'z']
+                    c2 <- ['a'..'z']
+                    pure (c1: c2: cs)
+
+      liftIO $ writeFile output $ printModule exts $ mergeModules (fst <$> exts) ms
 
 -- global identifiers of JavaScript definitions (module path + inner module accessor)
 type JSId = [String]
