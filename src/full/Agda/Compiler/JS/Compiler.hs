@@ -565,30 +565,30 @@ compilePrim :: T.TPrim -> Exp
 compilePrim p =
   case p of
     T.PIf -> curriedLambda 3 $ If (local 2) (local 1) (local 0)
-    T.PEqI -> binOp "agdaRTS.uprimIntegerEqual"
-    T.PEqF -> binOp "agdaRTS.uprimFloatEquality"
-    T.PEqQ -> binOp "agdaRTS.uprimQNameEquality"
+    T.PEqI -> binOp "uprimIntegerEqual"
+    T.PEqF -> binOp "uprimFloatEquality"
+    T.PEqQ -> binOp "uprimQNameEquality"
     T.PEqS -> primEq
     T.PEqC -> primEq
-    T.PGeq -> binOp "agdaRTS.uprimIntegerGreaterOrEqualThan"
-    T.PLt -> binOp "agdaRTS.uprimIntegerLessThan"
-    T.PAdd -> binOp "agdaRTS.uprimIntegerPlus"
-    T.PSub -> binOp "agdaRTS.uprimIntegerMinus"
-    T.PMul -> binOp "agdaRTS.uprimIntegerMultiply"
-    T.PRem -> binOp "agdaRTS.uprimIntegerRem"
-    T.PQuot -> binOp "agdaRTS.uprimIntegerQuot"
-    T.PAdd64 -> binOp "agdaRTS.uprimWord64Plus"
-    T.PSub64 -> binOp "agdaRTS.uprimWord64Minus"
-    T.PMul64 -> binOp "agdaRTS.uprimWord64Multiply"
-    T.PRem64 -> binOp "agdaRTS.uprimIntegerRem"     -- -|
-    T.PQuot64 -> binOp "agdaRTS.uprimIntegerQuot"   --  > These can use the integer functions
-    T.PEq64 -> binOp "agdaRTS.uprimIntegerEqual"    --  |
-    T.PLt64 -> binOp "agdaRTS.uprimIntegerLessThan" -- -|
-    T.PITo64 -> unOp "agdaRTS.primWord64FromNat"
-    T.P64ToI -> unOp "agdaRTS.primWord64ToNat"
-    T.PSeq -> binOp "agdaRTS.primSeq"
-  where binOp js = curriedLambda 2 $ apply (PlainJS js) [local 1, local 0]
-        unOp js  = curriedLambda 1 $ apply (PlainJS js) [local 0]
+    T.PGeq -> binOp "uprimIntegerGreaterOrEqualThan"
+    T.PLt -> binOp "uprimIntegerLessThan"
+    T.PAdd -> binOp "uprimIntegerPlus"
+    T.PSub -> binOp "uprimIntegerMinus"
+    T.PMul -> binOp "uprimIntegerMultiply"
+    T.PRem -> binOp "uprimIntegerRem"
+    T.PQuot -> binOp "uprimIntegerQuot"
+    T.PAdd64 -> binOp "uprimWord64Plus"
+    T.PSub64 -> binOp "uprimWord64Minus"
+    T.PMul64 -> binOp "uprimWord64Multiply"
+    T.PRem64 -> binOp "uprimIntegerRem"     -- -|
+    T.PQuot64 -> binOp "uprimIntegerQuot"   --  > These can use the integer functions
+    T.PEq64 -> binOp "uprimIntegerEqual"    --  |
+    T.PLt64 -> binOp "uprimIntegerLessThan" -- -|
+    T.PITo64 -> unOp "primWord64FromNat"
+    T.P64ToI -> unOp "primWord64ToNat"
+    T.PSeq -> binOp "primSeq"
+  where binOp js = curriedLambda 2 $ apply (PlainJS $ "agdaRTS." ++ js) [local 1, local 0]
+        unOp js  = curriedLambda 1 $ apply (PlainJS $ "agdaRTS." ++  js) [local 0]
         primEq   = curriedLambda 2 $ BinOp (local 1) "===" (local 0)
 
 
@@ -623,8 +623,8 @@ qname q = do
 
 literal :: Literal -> Exp
 literal l = case l of
-  (LitNat    _ x) -> Integer x
-  (LitWord64 _ x) -> Integer (fromIntegral x)
+  (LitNat    _ x) -> mkInteger x
+  (LitWord64 _ x) -> mkInteger (fromIntegral x)
   (LitFloat  _ x) -> Double  x
   (LitString _ x) -> String  x
   (LitChar   _ x) -> Char    x
@@ -634,8 +634,8 @@ literal l = case l of
 litqname :: QName -> Exp
 litqname q =
   Object $ Map.fromList
-    [ (mem "id", Integer $ fromIntegral n)
-    , (mem "moduleId", Integer $ fromIntegral m)
+    [ (mem "id", mkInteger $ fromIntegral n)
+    , (mem "moduleId", mkInteger $ fromIntegral m)
     , (mem "name", String $ prettyShow q)
     , (mem "fixity", litfixity fx)]
   where
@@ -654,7 +654,10 @@ litqname q =
     litAssoc RightAssoc = String "right-assoc"
 
     litPrec Unrelated   = String "unrelated"
-    litPrec (Related l) = Integer l
+    litPrec (Related l) = mkInteger l
+
+mkInteger :: Integer -> Exp
+mkInteger i = Apply (PlainJS "agdaRTS.primIntegerFromString") [String $ show i]
 
 --------------------------------------------------
 -- Writing out an ECMAScript module
