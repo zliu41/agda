@@ -98,12 +98,6 @@ self e (BinOp f op g) = BinOp (self e f) op (self e g)
 self e (PreOp op f)   = PreOp op (self e f)
 self e f              = f
 
--- Find the fixed point of an expression, with no top-level occurrences
--- of self.
-
-fix :: Exp -> Exp
-fix f = e where e = self e f
-
 -- Some helper functions
 
 curriedApply :: Exp -> [Exp] -> Exp
