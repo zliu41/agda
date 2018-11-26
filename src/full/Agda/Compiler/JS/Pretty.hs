@@ -33,17 +33,10 @@ data Doc
     | Empty
 
 render :: Bool -> Doc -> String
-render minify = intercalate "\n" . joinLines . map (uncurry mkIndent) . go 0
+render minify = joinLines . map (uncurry mkIndent) . go 0
   where
-    joinLines :: [String] -> [String]
-    joinLines = if minify then chunks 0 [] else id
-      where
-        chunks len acc [] = [concat (reverse acc)]
-        chunks len acc (s: ss)
-            | len + n <= 500 = chunks (len + n) (s: acc) ss
-            | otherwise = concat (reverse acc): chunks n [s] ss
-          where
-            n = length s
+    joinLines :: [String] -> String
+    joinLines xs = if minify then concat xs else intercalate "\n" xs
 
     joinBy f [x] (y: ys) = f x y ++ ys
     joinBy f (x:xs) ys = x: joinBy f xs ys
