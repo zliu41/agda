@@ -526,7 +526,7 @@ compileTerm kit t = go t
         alts' <- traverse (compileAlt kit) alts
         let cs  = defConstructors $ theDef dt
             obj = Object $ Map.fromList [(snd x, y) | (x, y) <- alts']
-            arr = mkArray [headWithDefault (mempty, Null) [(Comment s, y) | ((c', MemberId s), y) <- alts', c' == c] | c <- cs]
+            arr = mkArray [headWithDefault (mempty, nullExp) [(Comment s, y) | ((c', MemberId s), y) <- alts', c' == c] | c <- cs]
         case (theDef dt, defJSDef dt) of
           (_, Just e) -> do
             return $ apply (PlainJS e) [Local (LocalId sc), obj]
@@ -554,11 +554,12 @@ compileTerm kit t = go t
     getDef (T.TCoerce x) = getDef x
     getDef _ = Nothing
 
-    unit = return Null
+    unit = return nullExp
+    nullExp = Integer 0
 
     mkArray xs
-        | 2 * length (filter ((==Null) . snd) xs) <= length xs = Array xs
-        | otherwise = Object $ Map.fromList [(MemberIndex i c, x) | (i, (c, x)) <- zip [0..] xs, x /= Null]
+        | 2 * length (filter ((==nullExp) . snd) xs) <= length xs = Array xs
+        | otherwise = Object $ Map.fromList [(MemberIndex i c, x) | (i, (c, x)) <- zip [0..] xs, x /= nullExp]
 
 compilePrim :: T.TPrim -> Exp
 compilePrim p =
