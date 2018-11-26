@@ -210,7 +210,7 @@ instance Pretty Exp where
   pretty n (Integer x)       = text $ show x
   pretty n (Double x)        = text $ show x
   pretty (n, min) (Lambda x e) =
-    mparens (x /= 1) (punctuate "," (pretties (n+x, min) (map LocalId [x-1, x-2 .. 0]))) <>
+    (if x == 0 then "_" else mparens (x > 1) (punctuate "," (pretties (n+x, min) (map LocalId [x-1, x-2 .. 0])))) <>
     space <> "=>" <> space <> block (n+x, min) e
   pretty n (Object o)        = braces $ punctuate "," $ pretties n o
   pretty n (Array es)        = brackets $ punctuate "," [pretty n c <> pretty n e | (c, e) <- es]
