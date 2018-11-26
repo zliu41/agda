@@ -163,13 +163,12 @@ jsPostCompile opts _ ms = case optJSOutput opts of
             [(rename $ getName n, self mkId e) | Export n e <- m]
              where
                 names :: Map.Map [String] String
-                names = Map.fromList $ zipWith chooseName [getName n | Export n e <- m] $ filter (`notElem` reservedNames) shortNames
-
-                chooseName a b = (a, fromMaybe b $ lookup a exts)
+                names = Map.fromList exts
+                     `mappend` Map.fromList (zip [getName n | Export n e <- m] $ filter (`notElem` reservedNames) shortNames)
 
                 getName n = [s | MemberId s <- n]
 
-                rename n = fromMaybe __IMPOSSIBLE__ $ Map.lookup n names
+                rename n = fromMaybe (intercalate "_" n) $ Map.lookup n names
 
                 mkId _ xs = PlainJS $ rename xs
 
@@ -189,20 +188,20 @@ type JSId = [String]
 
 mergeModules :: [JSId] -> Map.Map ModuleName Module -> [Export]
 mergeModules exts ms
-    = [ Export (map MemberId n) $ fromMaybe (error $ show n) $ Map.lookup n allDef
-      | n <- concat $ sccs graph
+    = [ Export (map MemberId n) $ fromMaybe __IMPOSSIBLE__ $ Map.lookup n allDef
+      | n@("jAgda": _) <- concat $ sccs graph
       , null exts || Set.member n notDead ]
   where
     allDef :: Map.Map JSId Exp
     allDef = Map.fromList
       [ (ns ++ [s | MemberId s <- ename], self ((foldl (\e n -> Lookup e $ MemberId n) Self .) . mkId ns) def)
-      | (_, Module (GlobalId ("jAgda": ns)) es _) <- Map.toList ms
+      | (_, Module (GlobalId ns) es _) <- Map.toList ms
       , Export ename def <- es
       ]
 
     mkId :: [String] -> GlobalId -> [String] -> [String]
-    mkId _ (GlobalId ("jAgda": gs)) is = gs ++ is
-    mkId ns _ is = ns ++ is
+    mkId ns (GlobalId []) is = ns ++ is
+    mkId _ (GlobalId gs) is = gs ++ is
 
     graph :: Graph JSId ()
     graph = fromEdges
@@ -433,7 +432,7 @@ definition' kit q d t ls = do
         return $ Just $ Export ls funBody'
 
     Primitive{primName = p} | p `Set.member` primitives ->
-      plainJS $ "agdaRTS." ++ p
+      return . Just . Export ls $ agdaRTS p
     Primitive{} | Just e <- defJSDef d -> plainJS e
     Primitive{} | otherwise -> ret Undefined
 
@@ -587,8 +586,8 @@ compilePrim p =
     T.PITo64 -> unOp "primWord64FromNat"
     T.P64ToI -> unOp "primWord64ToNat"
     T.PSeq -> binOp "primSeq"
-  where binOp js = curriedLambda 2 $ apply (PlainJS $ "agdaRTS." ++ js) [local 1, local 0]
-        unOp js  = curriedLambda 1 $ apply (PlainJS $ "agdaRTS." ++  js) [local 0]
+  where binOp js = curriedLambda 2 $ apply (agdaRTS js) [local 1, local 0]
+        unOp js  = curriedLambda 1 $ apply (agdaRTS js) [local 0]
         primEq   = curriedLambda 2 $ BinOp (local 1) "===" (local 0)
 
 
@@ -657,7 +656,10 @@ litqname q =
     litPrec (Related l) = mkInteger l
 
 mkInteger :: Integer -> Exp
-mkInteger i = Apply (PlainJS "agdaRTS.primIntegerFromString") [String $ show i]
+mkInteger i = Apply (agdaRTS "primIntegerFromString") [String $ show i]
+
+agdaRTS :: String -> Exp
+agdaRTS s = Lookup (Global (GlobalId ["agdaRTS"])) (MemberId s)
 
 --------------------------------------------------
 -- Writing out an ECMAScript module
