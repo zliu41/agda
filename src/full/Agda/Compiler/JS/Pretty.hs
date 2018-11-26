@@ -238,7 +238,10 @@ instance Pretty [Export] where
   pretty n es = exports n (singleton []) es
 
 instance Pretty [(String, Exp)] where
-  pretty n es = vcat [text name <> space <> "=" <> space <> pretty n e <> ";" | (name, e) <- es]
+  pretty n [] = text ""
+  pretty n (e:es) = ("const " <> f e) $+$ vcat [ "," <> space <> f x | x <- es] $+$ ";"
+    where
+        f (name, es) = text name <> space <> "=" <> space <> pretty n es
 
 instance Pretty Module where
   pretty n (Module m es ex) =
