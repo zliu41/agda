@@ -462,8 +462,8 @@ definition' kit q d t ls = do
             index | Datatype{} <- dt
                   , optJSOptimize (fst kit)
                   , cs <- defConstructors dt
-                  = headWithDefault __IMPOSSIBLE__
-                      [MemberIndex i (mkComment $ last ls) | (i, x) <- zip [0..] cs, x == q]
+                  , i: _ <- [i | (i, x) <- zip [0..] cs, x == q]
+                  = MemberIndex i $ mkComment $ last ls
                   | otherwise = last ls
             mkComment (MemberId s) = Comment s
             mkComment _ = mempty
