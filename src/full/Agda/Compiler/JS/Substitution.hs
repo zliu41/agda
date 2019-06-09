@@ -8,8 +8,8 @@ import qualified Data.List as List
 
 import Agda.Syntax.Common ( Nat )
 import Agda.Compiler.JS.Syntax
-  ( Exp(Self,Undefined,Local,Lambda,Object,Array,Apply,Lookup,LookupIndex,If,BinOp,PreOp),
-    MemberId, MemberIndex(MemberIndex), LocalId(LocalId) )
+  ( Exp(Self,Undefined,Local,Lambda,Object,Apply,Lookup,If,BinOp,PreOp),
+    MemberId, LocalId(LocalId) )
 import Agda.Utils.Function ( iterate' )
 import Agda.Utils.List ( indexWithDefault )
 
@@ -19,10 +19,8 @@ map :: Nat -> (Nat -> LocalId -> Exp) -> Exp -> Exp
 map m f (Local i)       = f m i
 map m f (Lambda i e)    = Lambda i (map (m + i) f e)
 map m f (Object o)      = Object (Map.map (map m f) o)
-map m f (Array es)      = Array (List.map (map m f) es)
 map m f (Apply e es)    = Apply (map m f e) (List.map (map m f) es)
 map m f (Lookup e l)    = Lookup (map m f e) l
-map m f (LookupIndex e l) = LookupIndex (map m f e) l
 map m f (If e e' e'')   = If (map m f e) (map m f e') (map m f e'')
 map m f (PreOp op e)    = PreOp op (map m f e)
 map m f (BinOp e op e') = BinOp (map m f e) op (map m f e')
@@ -58,10 +56,8 @@ map' :: Nat -> (Nat -> LocalId -> Exp) -> Exp -> Exp
 map' m f (Local i)       = f m i
 map' m f (Lambda i e)    = Lambda i (map' (m + i) f e)
 map' m f (Object o)      = Object (Map.map (map' m f) o)
-map' m f (Array es)      = Array (List.map (map' m f) es)
 map' m f (Apply e es)    = apply (map' m f e) (List.map (map' m f) es)
 map' m f (Lookup e l)    = lookup (map' m f e) l
-map' m f (LookupIndex e l) = lookupIndex (map' m f e) l
 map' m f (If e e' e'')   = If (map' m f e) (map' m f e') (map' m f e'')
 map' m f (PreOp op e)    = PreOp op (map' m f e)
 map' m f (BinOp e op e') = BinOp (map' m f e) op (map' m f e')
@@ -81,10 +77,6 @@ lookup :: Exp -> MemberId -> Exp
 lookup (Object o) l = findWithDefault Undefined l o
 lookup e          l = Lookup e l
 
-lookupIndex :: Exp -> MemberIndex -> Exp
-lookupIndex (Array es) (MemberIndex i) = indexWithDefault Undefined es i
-lookupIndex e          l = LookupIndex e l
-
 -- Replace any top-level occurrences of self
 -- (needed because JS is a cbv language, so any top-level
 -- recursions would evaluate before the module has been defined,
@@ -94,12 +86,10 @@ lookupIndex e          l = LookupIndex e l
 self :: Exp -> Exp -> Exp
 self e (Self)         = e
 self e (Object o)     = Object (Map.map (self e) o)
-self e (Array es)     = Array (List.map (self e) es)
 self e (Apply f es)   = case (self e f) of
   (Lambda n g) -> self e (subst' n es g)
   g            -> Apply g (List.map (self e) es)
 self e (Lookup f l)   = lookup (self e f) l
-self e (LookupIndex f l) = lookupIndex (self e f) l
 self e (If f g h)     = If (self e f) (self e g) (self e h)
 self e (BinOp f op g) = BinOp (self e f) op (self e g)
 self e (PreOp op f)   = PreOp op (self e f)

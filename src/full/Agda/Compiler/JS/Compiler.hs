@@ -59,8 +59,8 @@ import Agda.Compiler.Treeless.GuardsToPrims
 import Agda.Compiler.Backend (Backend(..), Backend'(..), Recompile(..))
 
 import Agda.Compiler.JS.Syntax
-  ( Exp(Self,Local,Global,Undefined,Null,String,Char,Integer,Double,Lambda,Object,Array,Apply,Lookup,LookupIndex,If,BinOp,PlainJS),
-    LocalId(LocalId), GlobalId(GlobalId), MemberId(MemberId), MemberIndex(MemberIndex), Export(Export), Module(Module),
+  ( Exp(Self,Local,Global,Undefined,Null,String,Char,Integer,Double,Lambda,Object,Apply,Lookup,If,BinOp,PlainJS),
+    LocalId(LocalId), GlobalId(GlobalId), MemberId(MemberId), Export(Export), Module(Module),
     modName, expName, uses )
 import Agda.Compiler.JS.Substitution
   ( curriedLambda, curriedApply, emp, subst, apply )
@@ -240,7 +240,6 @@ isTopLevelValue (Export _ e) = case e of
 isEmptyObject :: Export -> Bool
 isEmptyObject (Export _ e) = case e of
   Object m -> Map.null m
-  Array [] -> True
   Lambda{} -> True
   _        -> False
 
