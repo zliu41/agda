@@ -82,8 +82,11 @@ disabledTests =
 
 tests :: IO TestTree
 tests = do
-  hasNode <- doesCommandExist "node"
-  let enabledCompilers = [MAlonzo] ++ [JS | hasNode]
+  nodeBin <- findExecutable "node"
+  let enabledCompilers = [MAlonzo] ++ [JS | isJust nodeBin]
+  _ <- case nodeBin of
+    Nothing -> putStrLn "No JS node binary found, skipping JS tests."
+    Just n -> putStrLn $ "Using JS node binary at " ++ n
 
   ts <- mapM forComp enabledCompilers
   return $ testGroup "Compiler" ts
