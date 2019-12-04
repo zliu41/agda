@@ -4,7 +4,7 @@ Failed to solve the following constraints:
       : {n = n₂ : Nat} {n = n₃ : Nat} {F = F₁ : Set → Set}
         {A : Set} {B = B₁ : Set} ⦃ AF = AF₁ : Applicative F₁ ⦄
         (f₁ : A → F₁ B₁) (x₁ : A) (v₁ : Vec A n₂) →
-        Applicative (λ v₂ → _F_160 v₂)
+        Applicative (λ v₂ → _F_158 v₂)
   Candidates
     AF : Applicative F
     applicativeComp :
@@ -12,20 +12,20 @@ Failed to solve the following constraints:
       ⦃ _ : Applicative G ⦄ →
       Applicative (F₁ o G)
   Resolve instance argument
-    _AF_165
+    _AF_163
       : {n = n₁ : Nat} {F = F₁ : Set → Set} {A : Set} {B = B₁ : Set}
         ⦃ AF = AF₁ : Applicative F₁ ⦄ →
-        Applicative (λ v → _F_166 v)
+        Applicative (λ v → _F_164 v)
   Candidates
     AF : Applicative F
     applicativeComp :
       {F = F₁ : Set → Set} {G : Set → Set} ⦃ _ : Applicative F₁ ⦄
       ⦃ _ : Applicative G ⦄ →
       Applicative (F₁ o G)
-  F B =< _F_166 _B_164
-  _F_166 (Vec _B_164 n) =< F (Vec B n)
-  F B =< _F_160 _B_152
-  _F_160 (Vec _B_152 n₁) =< F (Vec B n₁)
+  F B =< _F_164 _B_162
+  _F_164 (Vec _B_162 n) =< F (Vec B n)
+  F B =< _F_158 _B_152
+  _F_158 (Vec _B_152 n₁) =< F (Vec B n₁)
 Unsolved metas at the following locations:
   Issue2993.agda:66,80-83
   Issue2993.agda:66,84-85
