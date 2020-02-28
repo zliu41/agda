@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP                  #-}
+{-# LANGUAGE DeriveGeneric        #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE DataKinds            #-}
@@ -25,7 +26,10 @@ import qualified Data.Binary.Get as B
 import Data.Text.Lazy (Text)
 import Data.Typeable ( cast, Typeable, typeOf, TypeRep )
 
-import Agda.Syntax.Common (NameId)
+import GHC.Generics (Generic)
+
+import qualified Agda.Syntax.Abstract.Name as A
+import Agda.Syntax.Common (NameId, Fixity'(..), Fixity(..), FixityLevel, Associativity)
 import Agda.Syntax.Internal (Term, QName(..), ModuleName(..), nameId)
 import Agda.TypeChecking.Monad.Base (TypeError(GenericError), ModuleToSource)
 
@@ -70,12 +74,28 @@ lensFresh f r = f (farFresh r) <&> \ i -> r { farFresh = i }
 lensReuse :: Lens' Int32 FreshAndReuse
 lensReuse f r = f (farReuse r) <&> \ i -> r { farReuse = i }
 
+-- | Two 'AName's are equal if their @ANameId@ is equal.
+data ANameId = ANameId NameId FixityLevel Associativity
+  deriving (Eq, Ord, Generic)
+  -- Andreas, 2020-02-28, issue #1346
+  -- Fixity of A.Name can change, thus, needs to be distinguished
+  -- upon when serializing.
+
+instance Hashable ANameId
+
+anameId :: A.Name -> ANameId
+anameId (A.Name i _x _rx (Fixity' (Fixity _rfdecl level assoc) _notation _rfx) _recordname) =
+  ANameId i level assoc
+
 -- | Two 'QName's are equal if their @QNameId@ is equal.
-type QNameId = [NameId]
+data QNameId = QNameId [NameId] ANameId
+  deriving (Eq, Ord, Generic)
+
+instance Hashable QNameId
 
 -- | Computing a qualified names composed ID.
 qnameId :: QName -> QNameId
-qnameId (QName (MName ns) n) = map nameId $ n:ns
+qnameId (QName (MName ns) n) = QNameId (map nameId ns) $ anameId n
 
 -- | State of the the encoder.
 data Dict = Dict
@@ -90,7 +110,7 @@ data Dict = Dict
   , termD        :: !(HashTable (Ptr Term) Int32) -- ^ Not written to interface file.
   -- Andreas, Makoto, AIM XXI
   -- Memoizing A.Name does not buy us much if we already memoize A.QName.
-  , nameD        :: !(HashTable NameId  Int32)    -- ^ Not written to interface file.
+  , nameD        :: !(HashTable ANameId Int32)    -- ^ Not written to interface file.
   , qnameD       :: !(HashTable QNameId Int32)    -- ^ Not written to interface file.
   -- Fresh UIDs and reuse statistics:
   , nodeC        :: !(IORef FreshAndReuse)  -- counters for fresh indexes

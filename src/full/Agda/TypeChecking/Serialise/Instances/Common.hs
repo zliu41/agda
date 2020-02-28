@@ -392,7 +392,7 @@ instance EmbPrj A.ModuleName where
   value n           = A.MName `fmap` value n
 
 instance EmbPrj A.Name where
-  icod_ (A.Name a b c d e) = icodeMemo nameD nameC a $
+  icod_ x@(A.Name a b c d e) = icodeMemo nameD nameC (anameId x) $
     icodeN' (\ a b -> A.Name a b . underlyingRange) a b (SerialisedRange c) d e
 
   value = valueN (\a b c -> A.Name a b (underlyingRange c))

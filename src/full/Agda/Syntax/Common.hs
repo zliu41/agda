@@ -2041,7 +2041,9 @@ data FixityLevel
     -- ^ No fixity declared.
   | Related !PrecedenceLevel
     -- ^ Fixity level declared as the number.
-  deriving (Eq, Ord, Show, Data)
+  deriving (Eq, Ord, Show, Data, Generic)
+
+instance Hashable FixityLevel
 
 instance Null FixityLevel where
   null Unrelated = True
@@ -2051,7 +2053,9 @@ instance Null FixityLevel where
 -- | Associativity.
 
 data Associativity = NonAssoc | LeftAssoc | RightAssoc
-   deriving (Eq, Ord, Show, Data)
+   deriving (Eq, Ord, Show, Data, Generic)
+
+instance Hashable Associativity
 
 -- | Fixity of operators.
 
