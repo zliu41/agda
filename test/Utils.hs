@@ -58,13 +58,16 @@ printProgramResult = printProcResult . fromProgramResult
 
 type AgdaArgs = [String]
 
+agdaProcess :: AgdaArgs -> IO CreateProcess
+agdaProcess args = do
+  agdaBin <- getAgdaBin
+  envArgs <- getEnvAgdaArgs
+  pure (proc agdaBin (envArgs ++ args)) { create_group = True }
 
 readAgdaProcessWithExitCode :: AgdaArgs -> Text
                             -> IO (ExitCode, Text, Text)
 readAgdaProcessWithExitCode args inp = do
-  agdaBin <- getAgdaBin
-  envArgs <- getEnvAgdaArgs
-  let agdaProc = (proc agdaBin (envArgs ++ args)) { create_group = True }
+  agdaProc <- agdaProcess args
   PT.readCreateProcessWithExitCode agdaProc inp
 
 data AgdaResult
